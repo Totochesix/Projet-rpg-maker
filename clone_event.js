@@ -7,6 +7,7 @@
   const MODEL_MAP_ID = 2;             // ID de la map EventTools
   const MODEL_EVENT_NAME = "Caillou"; // Nom de l'événement modèle
   const CLONE_KEY = "pageup";         // Touche de clonage
+  const ANIMATION_ID = 121;
 
   function loadMapData(mapId, callback) {
     const filename = `Map${mapId.toString().padStart(3, "0")}.json`;
@@ -45,6 +46,9 @@
         SceneManager._scene._spriteset._characterSprites = [];
         SceneManager._scene._spriteset.createCharacters();
       }
+
+      // Joue l'animation sur l'evennement
+      $gameTemp.requestAnimation([gameEvent], ANIMATION_ID);
 
       console.log(`"${MODEL_EVENT_NAME}" cloné à (${x}, ${y})`);
     });
