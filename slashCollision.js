@@ -23,6 +23,7 @@
   // Fonction pour récupérer le troopId depuis la note d'une page active d'un événement
   function getTroopIdFromEvent(gameEvent) {
     const eventData = gameEvent.event();
+    if (!gameEvent || !gameEvent.event()) return null;
     if (!eventData || !eventData.pages) return null;
 
     const page = gameEvent.page();
@@ -47,9 +48,10 @@
   }
 
   function hasEnemyTag(gameEvent) {
-    const tags = getTagsFromEvent(gameEvent);
-    return tags.some(tag => ENEMY_TAGS.includes(tag));
-  }
+  if (!gameEvent.event()) return false; // Vérifie si l’événement est valide
+  const tags = getTagsFromEvent(gameEvent);
+  return tags.some(tag => ENEMY_TAGS.includes(tag));
+}
 
   // Étendre SlashSprite.update pour la collision
   const _update = SlashSprite.prototype.update;
@@ -74,8 +76,30 @@
     }
   };
 
+  function eraseEventFully(event) {
+  if (!event) return;
+  const eventId = event.eventId();   // ID de l’événement actif
+  const mapId = $gameMap.mapId();
+
+  // Efface visuellement l’événement
+  $gameMap.eraseEvent(eventId);
+
+  // Reset des self switches A, B, C, D pour cet événement
+  ['A', 'B', 'C', 'D'].forEach(letter => {
+    $gameSelfSwitches.setValue([mapId, eventId, letter], false);
+  });
+
+  console.log(`Événement ${event.event().name} (ID ${eventId}) effacé complètement.`);
+}
+
   SlashSprite.prototype._onEnemyHit = function(enemy) {
     const troopId = getTroopIdFromEvent(enemy);
+    const eventId = enemy.eventId();
+    const mapId = $gameMap.mapId();
+
+    console.log(troopId);
+    console.log(eventId);
+    console.log(mapId);
 
     if (troopId === null) {
       console.warn(`Aucun <TroopId: X> trouvé dans l'événement ${enemy.event().name}, ID ${enemy.eventId()}`);
@@ -91,5 +115,23 @@
     }
 
     $gameMap.eraseEvent(enemy.eventId());
+    ['A', 'B', 'C', 'D'].forEach(letter => {
+    $gameSelfSwitches.setValue([mapId, eventId, letter], false);
+  });
+  $gameMap.eraseEvent(eventId);
+
   };
+
+  (function() {
+  const _Scene_Battle_start = Scene_Battle.prototype.start;
+  Scene_Battle.prototype.start = function() {
+    _Scene_Battle_start.call(this);
+
+    $gameTroop.members().forEach(enemy => {
+      const reduction = Math.floor(enemy.mhp * 0.1);
+      enemy.gainHp(-reduction);
+      enemy.startDamagePopup();
+    });
+  };
+})();
 })();
