@@ -4,7 +4,7 @@
 
 /*:
  * @target MZ
- * @plugindesc [v2.0.0] Système de Parade à Seuils Multiples
+ * @plugindesc [v2.0.1] Système de Parade à Seuils Multiples - Version Corrigée
  * @author YourName
  * @url 
  * @help TDF_ParrySystem.js
@@ -50,8 +50,7 @@
  */
 
 (() => {
-    
-})();'use strict';
+    'use strict';
     
     const pluginName = 'TDF_ParrySystem';
     const parameters = PluginManager.parameters(pluginName);
@@ -246,26 +245,49 @@
         parryState.inputFrame = 0;
     }
     
-    // Separate function for parry sequence execution
-    function executeParrySequence(target) {
-        // Wait for timing completion
+    // CORRECTION PRINCIPALE: Fonction séparée pour l'exécution des actions avec références fixes
+    function executeActionWithParryResult(action, target, result) {
+        // Validation des paramètres
+        if (!action || !target || !result) {
+            console.warn('Paramètres invalides pour executeActionWithParryResult');
+            return;
+        }
+        
+        if (result.type === 'perfectParry') {
+            // Perfect parry - no damage at all
+            return;
+        }
+        
+        // Sauvegarder la méthode originale
+        const originalMakeDamageValue = action.makeDamageValue;
+        
+        // Modifier temporairement la méthode de calcul des dégâts
+        action.makeDamageValue = function(target, critical) {
+            const damage = originalMakeDamageValue.call(this, target, critical);
+            return Math.floor(damage * result.multiplier);
+        };
+        
+        try {
+            // Appliquer l'action
+            _Game_Action_apply.call(action, target);
+        } finally {
+            // Restaurer la méthode originale dans tous les cas
+            action.makeDamageValue = originalMakeDamageValue;
+        }
+    }
+    
+    // CORRECTION: Fonction de séquence de parade simplifiée et sécurisée
+    function executeParrySequence(action, target) {
+        // Sauvegarder les références
+        const savedAction = action;
+        const savedTarget = target;
+        
+        // Fonction récursive pour attendre le timing
         const waitForParry = () => {
             if (!parryState.active) {
+                // Séquence terminée - traiter le résultat
                 const result = processParryResult();
-                
-                if (result.type === 'perfectParry') {
-                    // Perfect parry - no damage at all
-                    return;
-                } else {
-                    // Apply damage with multiplier
-                    const originalMakeDamageValue = this.makeDamageValue;
-                    this.makeDamageValue = function(target, critical) {
-                        const damage = originalMakeDamageValue.call(this, target, critical);
-                        return Math.floor(damage * result.multiplier);
-                    };
-                    
-                    _Game_Action_apply.call(this, target);
-                }
+                executeActionWithParryResult(savedAction, savedTarget, result);
                 return;
             }
             
@@ -275,11 +297,13 @@
             // Check for timeout
             const elapsed = parryState.currentFrame - parryState.startFrame;
             if (elapsed >= totalDuration) {
+                // Timeout - traiter le résultat et appliquer l'action
                 const result = processParryResult();
-                _Game_Action_apply.call(this, target);
+                executeActionWithParryResult(savedAction, savedTarget, result);
                 return;
             }
             
+            // Continuer à attendre
             requestAnimationFrame(waitForParry);
         };
         
@@ -288,6 +312,12 @@
     
     // Start parry sequence
     function startParrySequence(target, attacker, action) {
+        // Vérifier que tous les paramètres sont valides
+        if (!target || !attacker || !action) {
+            console.warn('Paramètres invalides pour startParrySequence');
+            return false;
+        }
+        
         parryState.active = true;
         parryState.startFrame = Graphics.frameCount;
         parryState.currentFrame = Graphics.frameCount;
@@ -301,6 +331,8 @@
         
         // Play warning sound
         AudioManager.playSe({name: 'Bell3', volume: 80, pitch: 90, pan: 0});
+        
+        return true;
     }
     
     // Process parry result
@@ -321,28 +353,21 @@
                 case 'normalFail':
                     result = { type: 'normalFail', multiplier: 1.0 };
                     AudioManager.playSe({name: 'Buzzer2', volume: 80, pitch: 80, pan: 0});
-                    //$gameMessage.add(`\\C[2]Trop tôt...\\C[0]`);
                     break;
                     
                 case 'criticalFail':
                     result = { type: 'criticalFail', multiplier: 1.25 };
                     AudioManager.playSe({name: 'Buzzer1', volume: 100, pitch: 60, pan: 0});
-                    //$gameMessage.add(`\\C[2]${parryState.target.name()} - ÉCHEC CRITIQUE!\\C[0]`);
-                    //$gameMessage.add(`\\C[2]Dégâts augmentés de 25%!\\C[0]`);
                     break;
                     
                 case 'goodParry':
                     result = { type: 'goodParry', multiplier: 0.75 };
                     AudioManager.playSe({name: 'Absorb1', volume: 90, pitch: 110, pan: 0});
-                    //$gameMessage.add(`\\C[4]${parryState.target.name()} - Bonne parade!\\C[0]`);
-                    //$gameMessage.add(`\\C[4]Dégâts réduits de 25%!\\C[0]`);
                     break;
                     
                 case 'perfectParry':
                     result = { type: 'perfectParry', multiplier: 0.0 };
                     AudioManager.playSe({name: 'Recovery', volume: 100, pitch: 130, pan: 0});
-                    //$gameMessage.add(`\\C[3]${parryState.target.name()} - PARADE PARFAITE!\\C[0]`);
-                    //$gameMessage.add(`\\C[3]Attaque annulée!\\C[0]`);
                     
                     // Save references for counter attack before they get overwritten
                     const counterTarget = parryState.target;
@@ -357,7 +382,6 @@
                     
                     // Counter attack with saved references
                     setTimeout(() => {
-                        //$gameMessage.add(`\\C[2]Contre-attaque!\\C[0]`);
                         performCounterAttack(counterTarget, counterAttacker);
                         // Reset state after counter attack
                         setTimeout(() => resetParryState(), 100);
@@ -368,7 +392,6 @@
             // No input
             result = { type: 'noInput', multiplier: 1.0 };
             AudioManager.playSe({name: 'Miss', volume: 70, pitch: 80, pan: 0});
-            //$gameMessage.add(`\\C[2]Aucune parade tentée...\\C[0]`);
         }
         
         // Reset state for non-perfect parries
@@ -381,8 +404,11 @@
     
     // Perform counter attack
     function performCounterAttack(target, attacker) {
-        // Use passed parameters instead of parryState to avoid conflicts
-        if (!attacker || !target) return;
+        // Validation des paramètres
+        if (!attacker || !target) {
+            console.warn('Paramètres invalides pour performCounterAttack');
+            return;
+        }
         
         const action = new Game_Action(target);
         action.setAttack();
@@ -400,8 +426,8 @@
                 // Mark as hidden to make it disappear
                 attacker._hidden = true;
                 
-                // Trigger battle end check
-                BattleManager.checkBattleEnd();
+                // CORRECTION: Ne pas déclencher checkBattleEnd ici
+                // Le système vérifiera automatiquement à la fin du délai
                 
                 // Add experience and gold like normal kill
                 if ($gameParty.inBattle()) {
@@ -430,6 +456,12 @@
                 // End delay and resume battle
                 perfectParryDelayActive = false;
                 this._phase = 'turn';
+                
+                // CORRECTION: Vérifier la fin de combat après le délai
+                // Ceci permettra de détecter si un ennemi a été tué pendant la contre-attaque
+                if (this.checkBattleEnd()) {
+                    return; // Le combat est terminé, pas besoin de continuer
+                }
                 
                 // Process any delayed actions
                 if (delayedActions.length > 0) {
@@ -468,15 +500,23 @@
         _BattleManager_startAction.call(this);
     };
     
-    // Hook into battle action execution
+    // CORRECTION PRINCIPALE: Hook sécurisé dans l'application des actions
     const _Game_Action_apply = Game_Action.prototype.apply;
     Game_Action.prototype.apply = function(target) {
         // Only trigger for enemy attacks on actors that deal HP damage
         if (this.subject().isEnemy() && target.isActor() && this.isHpEffect()) {
+            // Validation des objets avant de commencer la séquence
+            if (!this.subject() || !target || !this.isValid()) {
+                console.warn('Action ou cible invalide pour la parade');
+                _Game_Action_apply.call(this, target);
+                return;
+            }
+            
             // Start parry sequence
-            startParrySequence(target, this.subject(), this);
-            executeParrySequence.call(this, target);
-            return;
+            if (startParrySequence(target, this.subject(), this)) {
+                executeParrySequence(this, target);
+                return;
+            }
         }
         
         // Normal action execution
@@ -520,3 +560,5 @@
         resetPerfectParryDelay();
         _Scene_Battle_start.call(this);
     };
+    
+})();
