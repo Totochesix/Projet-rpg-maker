@@ -115,6 +115,13 @@ function spawnSlash() {
 
   const sprite = new SlashSprite(px, py, dir);
   SceneManager._scene._spriteset.addChild(sprite);
+  AudioManager.playSe({
+  name: SOUND_NAME_SLASH,  // Nom du fichier audio (sans l'extension .ogg/.m4a)
+  volume: 90,
+  pitch: 100,
+  pan: 0
+  });
+  slashcooldown = SLASH_COOLDOWN;
   //$gameTemp.requestAnimation([gameEvent], ANIMATION_ID);
 }
 
@@ -136,7 +143,7 @@ function spawnSlash() {
     xhr.send();
   }
 
-  function cloneEventAt(x, y) {
+/*   function cloneEventAt(x, y) {
     loadMapData(MODEL_MAP_ID, (mapData) => {
       const model = mapData.events.find(e => e && e.name === MODEL_EVENT_NAME);
       if (!model) return console.error(`Événement modèle "${MODEL_EVENT_NAME}" non trouvé`);
@@ -160,7 +167,7 @@ function spawnSlash() {
 
      // console.log(`"${MODEL_EVENT_NAME}" cloné à (${x}, ${y}) avec animation`);
     });
-  }
+  } */
 
   function positionDevantLeJoueur() {
     const dir = $gamePlayer.direction();
