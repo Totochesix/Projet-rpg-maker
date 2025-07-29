@@ -4,7 +4,7 @@
 
 /*:
  * @target MZ
- * @plugindesc [v2.0.1] Système de Parade à Seuils Multiples - Version Corrigée
+ * @plugindesc [v2.0.2] Système de Parade à Seuils Multiples - Parade Parfaite Rapide
  * @author YourName
  * @url 
  * @help TDF_ParrySystem.js
@@ -61,11 +61,11 @@
     const perfectParryZone = Number(parameters['perfectParryZone']) || 8;
     const criticalFailZone = Number(parameters['criticalFailZone']) || 10;
     
-    // Perfect parry delay system
+    // Perfect parry delay system - BEAUCOUP PLUS RAPIDE
     let perfectParryDelayActive = false;
     let perfectParryEndTime = 0;
     let delayedActions = [];
-    const PERFECT_PARRY_DELAY = 180; // 3 seconds delay after perfect parry
+    const PERFECT_PARRY_DELAY = 30; // 0.5 secondes au lieu de 3 secondes
     
     // Parry system state
     let parryState = {
@@ -380,12 +380,12 @@
                     // Pause battle manager
                     BattleManager._phase = 'perfectParryDelay';
                     
-                    // Counter attack with saved references
+                    // Counter attack BEAUCOUP PLUS RAPIDE - 200ms au lieu de 1500ms
                     setTimeout(() => {
                         performCounterAttack(counterTarget, counterAttacker);
-                        // Reset state after counter attack
-                        setTimeout(() => resetParryState(), 100);
-                    }, 1500);
+                        // Reset state after counter attack - plus rapide aussi
+                        setTimeout(() => resetParryState(), 30);
+                    }, 200);
                     break;
             }
         } else {
@@ -394,9 +394,9 @@
             AudioManager.playSe({name: 'Miss', volume: 70, pitch: 80, pan: 0});
         }
         
-        // Reset state for non-perfect parries
+        // Reset state for non-perfect parries - plus rapide
         if (result.type !== 'perfectParry') {
-            setTimeout(() => resetParryState(), 100);
+            setTimeout(() => resetParryState(), 30);
         }
         
         return result;
