@@ -1,13 +1,13 @@
 //=============================================================================
-// ParrySystem.js
+// parrySystem.js
 //=============================================================================
 
 /*:
  * @target MZ
  * @plugindesc [v2.0.3] Système de Parade à Seuils Multiples - Compatible Timing Attack
- * @author Arnaut + Claude
+ * @author YourName
  * @url 
- * @help ParrySystem.js
+ * @help parrySystem.js
  * 
  * @param parryKey
  * @text Touche de Parade
@@ -76,12 +76,24 @@
  * Système de parade avec 4 seuils de réussite.
  * Timing précis requis pour éviter les dégâts !
  * Compatible avec le système de timing attack.
+ * 
+ * === TAGS POUR LES COMPÉTENCES ===
+ * Dans l'onglet "Note" des compétences, vous pouvez utiliser :
+ * 
+ * <noParry>           - Cette compétence ne peut pas être parée
+ * <parrySpeed:X>      - Modifie la vitesse de parade (ex: <parrySpeed:130> = 30% plus rapide)
+ *                       Valeurs recommandées: 70-150
+ * 
+ * Exemples:
+ * <parrySpeed:70>     - Attaque lente (30% plus facile à parer)
+ * <parrySpeed:130>    - Attaque rapide (30% plus difficile à parer)
+ * <noParry>           - Attaque imparable
  */
 
 (() => {
     'use strict';
     
-    const pluginName = 'ParrySystem';
+    const pluginName = 'parrySystem';
     const parameters = PluginManager.parameters(pluginName);
     const parryKey = parameters['parryKey'] || 'ok';
     const totalDuration = Number(parameters['totalDuration']) || 45;
@@ -96,11 +108,11 @@
     const goodParryMultiplier = Number(parameters['goodParryMultiplier']) || 0.75;
     const perfectParryMultiplier = Number(parameters['perfectParryMultiplier']) || 0.0;
     
-    // Perfect parry delay system - BEAUCOUP PLUS RAPIDE
+    // Perfect parry delay system
     let perfectParryDelayActive = false;
     let perfectParryEndTime = 0;
     let delayedActions = [];
-    const PERFECT_PARRY_DELAY = 30; // 0.5 secondes au lieu de 3 secondes
+    const PERFECT_PARRY_DELAY = 30;
     
     // Parry system state
     let parryState = {
@@ -111,22 +123,77 @@
         attacker: null,
         originalAction: null,
         inputPressed: false,
-        inputFrame: 0
+        inputFrame: 0,
+        // Valeurs actuelles pour cette attaque
+        currentValues: {
+            totalDuration: totalDuration,
+            normalFailZone: normalFailZone,
+            criticalFailZone: criticalFailZone,
+            goodParryZone: goodParryZone,
+            perfectParryZone: perfectParryZone
+        }
     };
     
     // UI Elements
     let parryUI = null;
     
-    // Zone calculations - NOUVEL ORDRE: Gris -> Rouge -> Bleu -> Vert
-    function getZones() {
-        // Calculer les zones en fonction des paramètres configurés
-        const normalEnd = normalFailZone;
-        const criticalEnd = normalEnd + criticalFailZone;
-        const goodEnd = criticalEnd + goodParryZone;
-        const perfectEnd = goodEnd + perfectParryZone;
+    // Fonction pour analyser les tags d'une compétence
+    function parseSkillTags(action) {
+        let canParry = true;
+        let speedMultiplier = 100; // 100 = vitesse normale
         
-        // Utiliser le maximum entre totalDuration et la somme des zones
-        const actualTotalDuration = Math.max(totalDuration, perfectEnd);
+        if (action.isSkill()) {
+            const skill = action.item();
+            const note = skill.note;
+            
+            // Vérifier si la compétence est imparable
+            if (note.includes('<noParry>')) {
+                canParry = false;
+            }
+            
+            // Vérifier la vitesse de parade
+            const speedMatch = note.match(/<parrySpeed:(\d+)>/i);
+            if (speedMatch) {
+                speedMultiplier = parseInt(speedMatch[1]);
+                // Limiter entre 50 et 200 pour éviter les valeurs extremes
+                speedMultiplier = Math.max(50, Math.min(200, speedMultiplier));
+            }
+        }
+        
+        return { canParry, speedMultiplier };
+    }
+    
+    // Fonction pour calculer les valeurs selon la compétence
+    function calculateValuesForAction(action) {
+        const tags = parseSkillTags(action);
+        
+        if (!tags.canParry) {
+            return null; // Pas de parade possible
+        }
+        
+        // Calculer les nouvelles valeurs basées sur le multiplicateur de vitesse
+        // Plus le multiplicateur est élevé, plus c'est rapide (donc plus difficile)
+        const speedFactor = tags.speedMultiplier / 100;
+        
+        return {
+            totalDuration: Math.round(totalDuration / speedFactor),
+            normalFailZone: Math.round(normalFailZone / speedFactor),
+            criticalFailZone: Math.round(criticalFailZone / speedFactor),
+            goodParryZone: Math.round(goodParryZone / speedFactor),
+            perfectParryZone: Math.round(perfectParryZone / speedFactor)
+        };
+    }
+    
+    // Zone calculations
+    function getZones() {
+        const values = parryState.currentValues;
+        
+        const normalEnd = values.normalFailZone;
+        const criticalEnd = normalEnd + values.criticalFailZone;
+        const goodEnd = criticalEnd + values.goodParryZone;
+        const perfectEnd = goodEnd + values.perfectParryZone;
+        
+        const actualTotalDuration = Math.max(values.totalDuration, perfectEnd);
         
         return {
             normalFail: { start: 0, end: normalEnd },
@@ -191,34 +258,34 @@
         parryUI.bitmap.fillRect(barX - 3, barY - 3, barWidth + 6, barHeight + 6, '#000000');
         parryUI.bitmap.fillRect(barX, barY, barWidth, barHeight, '#222222');
         
-        // Draw zones with colors - NOUVEL ORDRE: Gris -> Rouge -> Bleu -> Vert
+        // Draw zones with colors
         const zoneColors = {
-            normalFail: '#666666',    // Gris (début)
-            criticalFail: '#aa0000',  // Rouge (milieu)
+            normalFail: '#666666',    // Gris
+            criticalFail: '#aa0000',  // Rouge
             goodParry: '#0066aa',     // Bleu 
-            perfectParry: '#00aa00'   // Vert (fin)
+            perfectParry: '#00aa00'   // Vert
         };
         
-        // Normal fail zone (début - gris)
+        // Normal fail zone
         const normalWidth = (zones.normalFail.end / actualTotalDuration) * barWidth;
         parryUI.bitmap.fillRect(barX, barY, normalWidth, barHeight, zoneColors.normalFail);
         
-        // Critical fail zone (milieu - rouge)
+        // Critical fail zone
         const criticalStart = (zones.criticalFail.start / actualTotalDuration) * barWidth;
-        const criticalWidth = (criticalFailZone / actualTotalDuration) * barWidth;
+        const criticalWidth = (parryState.currentValues.criticalFailZone / actualTotalDuration) * barWidth;
         parryUI.bitmap.fillRect(barX + criticalStart, barY, criticalWidth, barHeight, zoneColors.criticalFail);
         
-        // Good parry zone (bleu)
+        // Good parry zone
         const goodStart = (zones.goodParry.start / actualTotalDuration) * barWidth;
-        const goodWidth = (goodParryZone / actualTotalDuration) * barWidth;
+        const goodWidth = (parryState.currentValues.goodParryZone / actualTotalDuration) * barWidth;
         parryUI.bitmap.fillRect(barX + goodStart, barY, goodWidth, barHeight, zoneColors.goodParry);
         
-        // Perfect parry zone (fin - vert)
+        // Perfect parry zone
         const perfectStart = (zones.perfectParry.start / actualTotalDuration) * barWidth;
-        const perfectWidth = (perfectParryZone / actualTotalDuration) * barWidth;
+        const perfectWidth = (parryState.currentValues.perfectParryZone / actualTotalDuration) * barWidth;
         parryUI.bitmap.fillRect(barX + perfectStart, barY, perfectWidth, barHeight, zoneColors.perfectParry);
         
-        // Progress cursor (white line moving left to right)
+        // Progress cursor
         const cursorX = barX + (progress * barWidth);
         parryUI.bitmap.fillRect(cursorX - 2, barY - 5, 4, barHeight + 10, '#ffffff');
         
@@ -257,49 +324,48 @@
         parryState.originalAction = null;
         parryState.inputPressed = false;
         parryState.inputFrame = 0;
+        // Reset aux valeurs par défaut
+        parryState.currentValues = {
+            totalDuration: totalDuration,
+            normalFailZone: normalFailZone,
+            criticalFailZone: criticalFailZone,
+            goodParryZone: goodParryZone,
+            perfectParryZone: perfectParryZone
+        };
     }
     
-    // CORRECTION PRINCIPALE: Fonction séparée pour l'exécution des actions avec références fixes
+    // Execute action with parry result
     function executeActionWithParryResult(action, target, result) {
-        // Validation des paramètres
         if (!action || !target || !result) {
             console.warn('Paramètres invalides pour executeActionWithParryResult');
             return;
         }
         
         if (result.type === 'perfectParry' && perfectParryMultiplier === 0) {
-            // Perfect parry - no damage at all
             return;
         }
         
-        // Sauvegarder la méthode originale
         const originalMakeDamageValue = action.makeDamageValue;
         
-        // Modifier temporairement la méthode de calcul des dégâts
         action.makeDamageValue = function(target, critical) {
             const damage = originalMakeDamageValue.call(this, target, critical);
             return Math.floor(damage * result.multiplier);
         };
         
         try {
-            // Appliquer l'action
             _Game_Action_apply.call(action, target);
         } finally {
-            // Restaurer la méthode originale dans tous les cas
             action.makeDamageValue = originalMakeDamageValue;
         }
     }
     
-    // CORRECTION: Fonction de séquence de parade simplifiée et sécurisée
+    // Execute parry sequence
     function executeParrySequence(action, target) {
-        // Sauvegarder les références
         const savedAction = action;
         const savedTarget = target;
         
-        // Fonction récursive pour attendre le timing
         const waitForParry = () => {
             if (!parryState.active) {
-                // Séquence terminée - traiter le résultat
                 const result = processParryResult();
                 executeActionWithParryResult(savedAction, savedTarget, result);
                 return;
@@ -308,17 +374,14 @@
             parryState.currentFrame = Graphics.frameCount;
             updateParryUI();
             
-            // Check for timeout
             const zones = getZones();
             const elapsed = parryState.currentFrame - parryState.startFrame;
             if (elapsed >= zones.totalDuration) {
-                // Timeout - traiter le résultat et appliquer l'action
                 const result = processParryResult();
                 executeActionWithParryResult(savedAction, savedTarget, result);
                 return;
             }
             
-            // Continuer à attendre
             requestAnimationFrame(waitForParry);
         };
         
@@ -327,11 +390,20 @@
     
     // Start parry sequence
     function startParrySequence(target, attacker, action) {
-        // Vérifier que tous les paramètres sont valides
         if (!target || !attacker || !action) {
             console.warn('Paramètres invalides pour startParrySequence');
             return false;
         }
+        
+        // Vérifier si cette action peut être parée
+        const actionValues = calculateValuesForAction(action);
+        if (!actionValues) {
+            // Action imparable, continuer normalement sans parade
+            return false;
+        }
+        
+        // Utiliser les valeurs calculées pour cette action
+        parryState.currentValues = actionValues;
         
         parryState.active = true;
         parryState.startFrame = Graphics.frameCount;
@@ -354,7 +426,6 @@
     function processParryResult() {
         if (!parryState.active) return { type: 'none', multiplier: normalFailMultiplier };
         
-        // End parry state and clean UI
         parryState.active = false;
         removeParryUI();
         
@@ -384,32 +455,24 @@
                     result = { type: 'perfectParry', multiplier: perfectParryMultiplier };
                     AudioManager.playSe({name: 'Recovery', volume: 100, pitch: 130, pan: 0});
                     
-                    // Save references for counter attack before they get overwritten
                     const counterTarget = parryState.target;
                     const counterAttacker = parryState.attacker;
                     
-                    // Activate perfect parry delay - block battle progression
                     perfectParryDelayActive = true;
                     perfectParryEndTime = Graphics.frameCount + PERFECT_PARRY_DELAY;
-                    
-                    // Pause battle manager
                     BattleManager._phase = 'perfectParryDelay';
                     
-                    // Counter attack BEAUCOUP PLUS RAPIDE - 200ms au lieu de 1500ms
                     setTimeout(() => {
                         performCounterAttack(counterTarget, counterAttacker);
-                        // Reset state after counter attack - plus rapide aussi
                         setTimeout(() => resetParryState(), 30);
                     }, 200);
                     break;
             }
         } else {
-            // No input
             result = { type: 'noInput', multiplier: normalFailMultiplier };
             AudioManager.playSe({name: 'Miss', volume: 70, pitch: 80, pan: 0});
         }
         
-        // Reset state for non-perfect parries - plus rapide
         if (result.type !== 'perfectParry') {
             setTimeout(() => resetParryState(), 30);
         }
@@ -419,7 +482,6 @@
     
     // Perform counter attack
     function performCounterAttack(target, attacker) {
-        // Validation des paramètres
         if (!attacker || !target) {
             console.warn('Paramètres invalides pour performCounterAttack');
             return;
@@ -428,62 +490,45 @@
         const action = new Game_Action(target);
         action.setAttack();
         
-        // MODIFICATION: Marquer comme contre-attaque pour éviter le mini-jeu de timing
         if (window.markAsCounterAttack) {
             window.markAsCounterAttack();
         }
         
-        // Execute counter
         action.apply(attacker);
         
-        // Check if enemy is defeated and handle death properly
         if (attacker.isDead()) {
-            // Force enemy death sequence
             attacker.performCollapse();
             
-            // Remove from battle if it's an enemy
             if (attacker.isEnemy()) {
-                // Mark as hidden to make it disappear
                 attacker._hidden = true;
                 
-                // CORRECTION: Ne pas déclencher checkBattleEnd ici
-                // Le système vérifiera automatiquement à la fin du délai
-                
-                // Add experience and gold like normal kill
                 if ($gameParty.inBattle()) {
                     $gameTroop.makeDropItems();
                 }
             }
         }
         
-        // Show animation
         if (target.isActor()) {
             $gameTemp.requestAnimation([attacker], target.attackAnimationId1());
         }
         
-        // Show damage popup
         attacker.startDamagePopup();
     }
     
-    // Hook into BattleManager update to handle perfect parry delay
+    // Hook into BattleManager update
     const _BattleManager_update = BattleManager.update;
     BattleManager.update = function(timeActive) {
-        // Check if we're in perfect parry delay
         if (perfectParryDelayActive) {
             const currentTime = Graphics.frameCount;
             
             if (currentTime >= perfectParryEndTime) {
-                // End delay and resume battle
                 perfectParryDelayActive = false;
                 this._phase = 'turn';
                 
-                // CORRECTION: Vérifier la fin de combat après le délai
-                // Ceci permettra de détecter si un ennemi a été tué pendant la contre-attaque
                 if (this.checkBattleEnd()) {
-                    return; // Le combat est terminé, pas besoin de continuer
+                    return;
                 }
                 
-                // Process any delayed actions
                 if (delayedActions.length > 0) {
                     const nextAction = delayedActions.shift();
                     this._subject = nextAction.subject;
@@ -491,55 +536,46 @@
                     this._targets = nextAction.targets;
                 }
             } else {
-                // Still in delay, don't process normal battle updates
                 return;
             }
         }
         
-        // Call original update
         _BattleManager_update.call(this, timeActive);
     };
     
-    // Hook into BattleManager action execution to delay enemy actions during perfect parry
+    // Hook into BattleManager action execution
     const _BattleManager_startAction = BattleManager.startAction;
     BattleManager.startAction = function() {
         if (perfectParryDelayActive && this._subject && this._subject.isEnemy()) {
-            // Delay this enemy action
             delayedActions.push({
                 subject: this._subject,
                 action: this._action,
                 targets: this._targets
             });
             
-            // Skip to next turn
             this.endAction();
             return;
         }
         
-        // Call original startAction
         _BattleManager_startAction.call(this);
     };
     
-    // CORRECTION PRINCIPALE: Hook sécurisé dans l'application des actions
+    // Hook into Game_Action apply
     const _Game_Action_apply = Game_Action.prototype.apply;
     Game_Action.prototype.apply = function(target) {
-        // Only trigger for enemy attacks on actors that deal HP damage
         if (this.subject().isEnemy() && target.isActor() && this.isHpEffect()) {
-            // Validation des objets avant de commencer la séquence
             if (!this.subject() || !target || !this.isValid()) {
                 console.warn('Action ou cible invalide pour la parade');
                 _Game_Action_apply.call(this, target);
                 return;
             }
             
-            // Start parry sequence
             if (startParrySequence(target, this.subject(), this)) {
                 executeParrySequence(this, target);
                 return;
             }
         }
         
-        // Normal action execution
         _Game_Action_apply.call(this, target);
     };
     
@@ -548,17 +584,15 @@
     Scene_Battle.prototype.update = function() {
         _Scene_Battle_update.call(this);
         
-        // Check for parry input
         if (parryState.active && Input.isTriggered(parryKey) && !parryState.inputPressed) {
             parryState.inputPressed = true;
             parryState.inputFrame = Graphics.frameCount;
             
-            // Immediate audio feedback
             AudioManager.playSe({name: 'Cursor1', volume: 60, pitch: 120, pan: 0});
         }
     };
     
-    // Reset perfect parry delay on battle start/end
+    // Reset functions
     function resetPerfectParryDelay() {
         perfectParryDelayActive = false;
         perfectParryEndTime = 0;
