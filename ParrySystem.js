@@ -1,13 +1,13 @@
 //=============================================================================
-// TDF_ParrySystem.js
+// ParrySystem.js
 //=============================================================================
 
 /*:
  * @target MZ
- * @plugindesc [v2.0.2] Système de Parade à Seuils Multiples - Parade Parfaite Rapide
+ * @plugindesc [v2.0.3] Système de Parade à Seuils Multiples - Compatible Timing Attack
  * @author YourName
  * @url 
- * @help TDF_ParrySystem.js
+ * @help ParrySystem.js
  * 
  * @param parryKey
  * @text Touche de Parade
@@ -45,14 +45,43 @@
  * @type number
  * @default 10
  * 
+ * @param normalFailMultiplier
+ * @text Multiplicateur Échec Normal
+ * @desc Multiplicateur de dégâts pour un échec normal (1.0 = dégâts normaux)
+ * @type number
+ * @decimals 2
+ * @default 1.00
+ * 
+ * @param criticalFailMultiplier
+ * @text Multiplicateur Échec Critique
+ * @desc Multiplicateur de dégâts pour un échec critique
+ * @type number
+ * @decimals 2
+ * @default 1.25
+ * 
+ * @param goodParryMultiplier
+ * @text Multiplicateur Parade Réussie
+ * @desc Multiplicateur de dégâts pour une parade réussie
+ * @type number
+ * @decimals 2
+ * @default 0.75
+ * 
+ * @param perfectParryMultiplier
+ * @text Multiplicateur Parade Parfaite
+ * @desc Multiplicateur de dégâts pour une parade parfaite (0.0 = aucun dégât)
+ * @type number
+ * @decimals 2
+ * @default 0.00
+ * 
  * Système de parade avec 4 seuils de réussite.
  * Timing précis requis pour éviter les dégâts !
+ * Compatible avec le système de timing attack.
  */
 
 (() => {
     'use strict';
     
-    const pluginName = 'TDF_ParrySystem';
+    const pluginName = 'ParrySystem';
     const parameters = PluginManager.parameters(pluginName);
     const parryKey = parameters['parryKey'] || 'ok';
     const totalDuration = Number(parameters['totalDuration']) || 45;
@@ -60,6 +89,12 @@
     const goodParryZone = Number(parameters['goodParryZone']) || 12;
     const perfectParryZone = Number(parameters['perfectParryZone']) || 8;
     const criticalFailZone = Number(parameters['criticalFailZone']) || 10;
+    
+    // Multiplicateurs configurables
+    const normalFailMultiplier = Number(parameters['normalFailMultiplier']) || 1.0;
+    const criticalFailMultiplier = Number(parameters['criticalFailMultiplier']) || 1.25;
+    const goodParryMultiplier = Number(parameters['goodParryMultiplier']) || 0.75;
+    const perfectParryMultiplier = Number(parameters['perfectParryMultiplier']) || 0.0;
     
     // Perfect parry delay system - BEAUCOUP PLUS RAPIDE
     let perfectParryDelayActive = false;
@@ -84,11 +119,21 @@
     
     // Zone calculations - NOUVEL ORDRE: Gris -> Rouge -> Bleu -> Vert
     function getZones() {
+        // Calculer les zones en fonction des paramètres configurés
+        const normalEnd = normalFailZone;
+        const criticalEnd = normalEnd + criticalFailZone;
+        const goodEnd = criticalEnd + goodParryZone;
+        const perfectEnd = goodEnd + perfectParryZone;
+        
+        // Utiliser le maximum entre totalDuration et la somme des zones
+        const actualTotalDuration = Math.max(totalDuration, perfectEnd);
+        
         return {
-            normalFail: { start: 0, end: normalFailZone },
-            criticalFail: { start: normalFailZone, end: normalFailZone + criticalFailZone },
-            goodParry: { start: normalFailZone + criticalFailZone, end: normalFailZone + criticalFailZone + goodParryZone },
-            perfectParry: { start: normalFailZone + criticalFailZone + goodParryZone, end: totalDuration }
+            normalFail: { start: 0, end: normalEnd },
+            criticalFail: { start: normalEnd, end: criticalEnd },
+            goodParry: { start: criticalEnd, end: goodEnd },
+            perfectParry: { start: goodEnd, end: actualTotalDuration },
+            totalDuration: actualTotalDuration
         };
     }
     
@@ -132,8 +177,9 @@
         
         // Calculate progress
         const elapsed = parryState.currentFrame - parryState.startFrame;
-        const progress = elapsed / totalDuration;
         const zones = getZones();
+        const actualTotalDuration = zones.totalDuration;
+        const progress = elapsed / actualTotalDuration;
         
         // Draw timing bar
         const barWidth = 500;
@@ -154,22 +200,22 @@
         };
         
         // Normal fail zone (début - gris)
-        const normalWidth = (zones.normalFail.end / totalDuration) * barWidth;
+        const normalWidth = (zones.normalFail.end / actualTotalDuration) * barWidth;
         parryUI.bitmap.fillRect(barX, barY, normalWidth, barHeight, zoneColors.normalFail);
         
         // Critical fail zone (milieu - rouge)
-        const criticalStart = (zones.criticalFail.start / totalDuration) * barWidth;
-        const criticalWidth = (criticalFailZone / totalDuration) * barWidth;
+        const criticalStart = (zones.criticalFail.start / actualTotalDuration) * barWidth;
+        const criticalWidth = (criticalFailZone / actualTotalDuration) * barWidth;
         parryUI.bitmap.fillRect(barX + criticalStart, barY, criticalWidth, barHeight, zoneColors.criticalFail);
         
         // Good parry zone (bleu)
-        const goodStart = (zones.goodParry.start / totalDuration) * barWidth;
-        const goodWidth = (goodParryZone / totalDuration) * barWidth;
+        const goodStart = (zones.goodParry.start / actualTotalDuration) * barWidth;
+        const goodWidth = (goodParryZone / actualTotalDuration) * barWidth;
         parryUI.bitmap.fillRect(barX + goodStart, barY, goodWidth, barHeight, zoneColors.goodParry);
         
         // Perfect parry zone (fin - vert)
-        const perfectStart = (zones.perfectParry.start / totalDuration) * barWidth;
-        const perfectWidth = (perfectParryZone / totalDuration) * barWidth;
+        const perfectStart = (zones.perfectParry.start / actualTotalDuration) * barWidth;
+        const perfectWidth = (perfectParryZone / actualTotalDuration) * barWidth;
         parryUI.bitmap.fillRect(barX + perfectStart, barY, perfectWidth, barHeight, zoneColors.perfectParry);
         
         // Progress cursor (white line moving left to right)
@@ -178,7 +224,7 @@
         
         // Show input mark if pressed
         if (parryState.inputPressed) {
-            const inputProgress = (parryState.inputFrame - parryState.startFrame) / totalDuration;
+            const inputProgress = (parryState.inputFrame - parryState.startFrame) / actualTotalDuration;
             const inputX = barX + (inputProgress * barWidth);
             const inputZone = getCurrentZone(parryState.inputFrame - parryState.startFrame);
             const inputColor = {
@@ -189,38 +235,6 @@
             }[inputZone];
             parryUI.bitmap.fillRect(inputX - 1, barY - 8, 2, barHeight + 16, inputColor);
         }
-        
-        // Current zone indication
-        const currentZone = getCurrentZone(elapsed);
-        const zoneTexts = {
-            'normalFail': 'Attendez...',
-            'criticalFail': 'DANGER! PAS MAINTENANT!',
-            'goodParry': 'PAREZ MAINTENANT!',
-            'perfectParry': 'PARFAIT!'
-        };
-        
-        const zoneTextColors = {
-            'normalFail': '#ffffff',
-            'criticalFail': '#ff4444',
-            'goodParry': '#4488ff',
-            'perfectParry': '#44ff44'
-        };
-        
-        // Main instruction
-        parryUI.bitmap.fontSize = 24;
-        parryUI.bitmap.textColor = zoneTextColors[currentZone];
-        parryUI.bitmap.drawText(`${zoneTexts[currentZone]}`, 0, 5, Graphics.width, 30, 'center');
-        
-        // Key instruction
-        parryUI.bitmap.fontSize = 18;
-        parryUI.bitmap.textColor = '#ffffff';
-        parryUI.bitmap.drawText(`Appuyez sur ${parryKey.toUpperCase()} pour parer`, 0, 85, Graphics.width, 25, 'center');
-        
-        // Zone legend
-        parryUI.bitmap.fontSize = 14;
-        parryUI.bitmap.textColor = '#cccccc';
-        const legendY = 100;
-        parryUI.bitmap.drawText('Gris: Trop tôt | Rouge: Échec critique (+25%) | Bleu: Parade (-25%) | Vert: Parfait (0 + contre)', 0, legendY, Graphics.width, 20, 'center');
     }
     
     // Remove parry UI
@@ -253,7 +267,7 @@
             return;
         }
         
-        if (result.type === 'perfectParry') {
+        if (result.type === 'perfectParry' && perfectParryMultiplier === 0) {
             // Perfect parry - no damage at all
             return;
         }
@@ -295,8 +309,9 @@
             updateParryUI();
             
             // Check for timeout
+            const zones = getZones();
             const elapsed = parryState.currentFrame - parryState.startFrame;
-            if (elapsed >= totalDuration) {
+            if (elapsed >= zones.totalDuration) {
                 // Timeout - traiter le résultat et appliquer l'action
                 const result = processParryResult();
                 executeActionWithParryResult(savedAction, savedTarget, result);
@@ -337,13 +352,13 @@
     
     // Process parry result
     function processParryResult() {
-        if (!parryState.active) return { type: 'none', multiplier: 1.0 };
+        if (!parryState.active) return { type: 'none', multiplier: normalFailMultiplier };
         
         // End parry state and clean UI
         parryState.active = false;
         removeParryUI();
         
-        let result = { type: 'normalFail', multiplier: 1.0 };
+        let result = { type: 'normalFail', multiplier: normalFailMultiplier };
         
         if (parryState.inputPressed) {
             const inputTiming = parryState.inputFrame - parryState.startFrame;
@@ -351,22 +366,22 @@
             
             switch (zone) {
                 case 'normalFail':
-                    result = { type: 'normalFail', multiplier: 1.0 };
+                    result = { type: 'normalFail', multiplier: normalFailMultiplier };
                     AudioManager.playSe({name: 'Buzzer2', volume: 80, pitch: 80, pan: 0});
                     break;
                     
                 case 'criticalFail':
-                    result = { type: 'criticalFail', multiplier: 1.25 };
+                    result = { type: 'criticalFail', multiplier: criticalFailMultiplier };
                     AudioManager.playSe({name: 'Buzzer1', volume: 100, pitch: 60, pan: 0});
                     break;
                     
                 case 'goodParry':
-                    result = { type: 'goodParry', multiplier: 0.75 };
+                    result = { type: 'goodParry', multiplier: goodParryMultiplier };
                     AudioManager.playSe({name: 'Absorb1', volume: 90, pitch: 110, pan: 0});
                     break;
                     
                 case 'perfectParry':
-                    result = { type: 'perfectParry', multiplier: 0.0 };
+                    result = { type: 'perfectParry', multiplier: perfectParryMultiplier };
                     AudioManager.playSe({name: 'Recovery', volume: 100, pitch: 130, pan: 0});
                     
                     // Save references for counter attack before they get overwritten
@@ -390,7 +405,7 @@
             }
         } else {
             // No input
-            result = { type: 'noInput', multiplier: 1.0 };
+            result = { type: 'noInput', multiplier: normalFailMultiplier };
             AudioManager.playSe({name: 'Miss', volume: 70, pitch: 80, pan: 0});
         }
         
@@ -412,6 +427,11 @@
         
         const action = new Game_Action(target);
         action.setAttack();
+        
+        // MODIFICATION: Marquer comme contre-attaque pour éviter le mini-jeu de timing
+        if (window.markAsCounterAttack) {
+            window.markAsCounterAttack();
+        }
         
         // Execute counter
         action.apply(attacker);
