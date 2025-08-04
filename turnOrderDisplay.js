@@ -17,7 +17,7 @@
  * @type number
  * @min 0
  * @max 1920
- * @default 20
+ * @default 1600
  *
  * @param windowY
  * @text Position Y Fenêtre
@@ -25,7 +25,7 @@
  * @type number
  * @min 0
  * @max 1080
- * @default 60
+ * @default 240
  *
  * @param previewTurns
  * @text Tours à Prévisualiser
@@ -52,8 +52,8 @@
     const pluginName = 'turnOrderDisplay';
     const parameters = PluginManager.parameters(pluginName);
     const showTurnOrder = parameters['showTurnOrder'] === 'true';
-    const windowX = parseInt(parameters['windowX'] || 20);
-    const windowY = parseInt(parameters['windowY'] || 60);
+    const windowX = parseInt(parameters['windowX'] || 1600);
+    const windowY = parseInt(parameters['windowY'] || 240);
     const previewTurns = parseInt(parameters['previewTurns'] || 2);
     
     // Fenêtre d'affichage de l'ordre des tours
@@ -368,4 +368,5 @@
         }
     };
     
+
 })();
